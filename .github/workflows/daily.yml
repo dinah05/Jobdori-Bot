@@ -31,4 +31,4 @@ jobs:
 
       # 4. Jobdori 스크립트 실행
       - name: Run Jobdori Script
-        run: node Jobdori.js
+        run: node jobdori.js
