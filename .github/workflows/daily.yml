@@ -1,4 +1,4 @@
-name: Daily King
+name: Jobdori
 
 # 한국시간 23시 자동 실행, 필요하면 수동도 가능하게
 on:
@@ -29,6 +29,6 @@ jobs:
       - name: Install node-fetch
         run: npm install node-fetch@2
 
-      # 4. daily-king 스크립트 실행
-      - name: Run Daily King Script
-        run: node daily-king.js
+      # 4. Jobdori 스크립트 실행
+      - name: Run Jobdori Script
+        run: node Jobdori.js
