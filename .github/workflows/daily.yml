@@ -1,0 +1,34 @@
+name: Daily King
+
+# 한국시간 23시 자동 실행, 필요하면 수동도 가능하게
+on:
+  schedule:
+    - cron: "0 14 * * *" # UTC 기준 14시 = KST 23시
+  workflow_dispatch:
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+
+    env:
+      PERSONAL_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+
+    steps:
+      # 1. 레포 체크아웃
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Node.js 설치
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      # 3. node-fetch 설치
+      - name: Install node-fetch
+        run: npm install node-fetch@2
+
+      # 4. daily-king 스크립트 실행
+      - name: Run Daily King Script
+        run: node daily-king.js
