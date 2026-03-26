@@ -4,7 +4,6 @@ const GITHUB_TOKEN = process.env.PERSONAL_TOKEN;
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 
 const ORG = "LinkYou-2025";
-
 const TARGET_OFFSET_DAYS = 0;
 
 function kstDateString(date = new Date()) {
@@ -52,8 +51,23 @@ async function gh(url) {
   return res.json();
 }
 
-async function getOrgRepos() {
-  return gh(`https://api.github.com/orgs/${ORG}/repos?per_page=100&type=all`);
+// 전체 레포 조회
+async function getAllOrgRepos() {
+  let page = 1;
+  let allRepos = [];
+
+  while (true) {
+    const repos = await gh(
+      `https://api.github.com/orgs/${ORG}/repos?per_page=100&page=${page}`
+    );
+
+    if (!Array.isArray(repos) || repos.length === 0) break;
+
+    allRepos = allRepos.concat(repos);
+    page++;
+  }
+
+  return allRepos;
 }
 
 async function getBranches(repo) {
@@ -67,6 +81,7 @@ async function getCommits(repo, branch, since, until) {
     `&since=${encodeURIComponent(since)}` +
     `&until=${encodeURIComponent(until)}` +
     `&per_page=100`;
+
   return gh(url);
 }
 
@@ -77,7 +92,7 @@ async function run() {
   console.log(`Target KST = ${targetKst}`);
   console.log(`UTC range since=${since} until=${until}`);
 
-  const repos = await getOrgRepos();
+  const repos = await getAllOrgRepos();
   if (!Array.isArray(repos)) return;
 
   const countMap = {};
@@ -92,13 +107,15 @@ async function run() {
       if (!Array.isArray(commits)) continue;
 
       for (const c of commits) {
-        if (!c?.sha || !c?.commit) continue;
+        if (!c?.sha || !c?.author) continue; // GitHub 유저 없는 커밋 제외
+
         if (seenSha.has(c.sha)) continue;
         seenSha.add(c.sha);
 
+        // merge commit 제외
         if (Array.isArray(c.parents) && c.parents.length > 1) continue;
 
-        const key = c.author?.login || c.commit?.author?.name || "unknown";
+        const key = c.author.login;
         if (key.endsWith("[bot]")) continue;
 
         countMap[key] = (countMap[key] || 0) + 1;
@@ -121,12 +138,10 @@ async function run() {
     for (let i = 0; i < sorted.length; i++) {
       const [user, cnt] = sorted[i];
 
-      // 점수 달라지면 순위 갱신
       if (cnt !== prevCnt) {
         displayRank = i + 1;
       }
 
-      // 3위까지만
       if (displayRank > 3) break;
 
       prevCnt = cnt;
@@ -139,7 +154,6 @@ async function run() {
 
       const medal = medalMap[displayRank] || "";
 
-      // 공동 여부 판단
       const isTie =
         (i > 0 && cnt === sorted[i - 1][1]) ||
         (i < sorted.length - 1 && cnt === sorted[i + 1][1]);
