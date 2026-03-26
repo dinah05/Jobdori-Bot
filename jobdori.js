@@ -18,8 +18,8 @@ function kstDateString(date = new Date()) {
 
 function getKstDayUtcRange(kstYYYYMMDD) {
   const [y, m, d] = kstYYYYMMDD.split("-").map(Number);
-  const since = new Date(Date.UTC(y, m - 1, d, -9, 0, 0, 0));          // KST 00:00 -> UTC -9h
-  const until = new Date(Date.UTC(y, m - 1, d, 14, 59, 59, 999));       // KST 23:59:59.999 -> UTC 14:59:59.999
+  const since = new Date(Date.UTC(y, m - 1, d, -9, 0, 0, 0));
+  const until = new Date(Date.UTC(y, m - 1, d, 14, 59, 59, 999));
   return { since: since.toISOString(), until: until.toISOString() };
 }
 
@@ -109,14 +109,46 @@ async function run() {
   const sorted = Object.entries(countMap).sort((a, b) => b[1] - a[1]);
 
   let message = "";
+
   if (sorted.length === 0) {
     message = `📭 ${targetKst} (KST) 커밋이 없습니다...\n내일 열심히 해주시겠죠..? 🥲`;
   } else {
     message = `🏆 ${targetKst} (KST) 오늘자 귀염둥이 기여왕!\n\n`;
-    sorted.slice(0, 3).forEach(([user, cnt], i) => {
-      const medal = ["👑", "🥈", "🥉"][i];
-      message += `${medal} ${i + 1}위 ${user} — ${cnt} commits\n`;
-    });
+
+    let prevCnt = null;
+    let displayRank = 0;
+
+    for (let i = 0; i < sorted.length; i++) {
+      const [user, cnt] = sorted[i];
+
+      // 점수 달라지면 순위 갱신
+      if (cnt !== prevCnt) {
+        displayRank = i + 1;
+      }
+
+      // 3위까지만
+      if (displayRank > 3) break;
+
+      prevCnt = cnt;
+
+      const medalMap = {
+        1: "👑",
+        2: "🥈",
+        3: "🥉",
+      };
+
+      const medal = medalMap[displayRank] || "";
+
+      // 공동 여부 판단
+      const isTie =
+        (i > 0 && cnt === sorted[i - 1][1]) ||
+        (i < sorted.length - 1 && cnt === sorted[i + 1][1]);
+
+      const rankText = isTie ? `공동 ${displayRank}위` : `${displayRank}위`;
+
+      message += `${medal} ${rankText} ${user} — ${cnt} commits\n`;
+    }
+
     message += "\n오늘도 링큐를 움직인 최고의 개발자들~ 🚀";
   }
 
