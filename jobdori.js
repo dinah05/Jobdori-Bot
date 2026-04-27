@@ -17,7 +17,9 @@ function kstDateString(date = new Date()) {
 
 function getKstDayUtcRange(kstYYYYMMDD) {
   const [y, m, d] = kstYYYYMMDD.split("-").map(Number);
-  const since = new Date(Date.UTC(y, m - 1, d, -9, 0, 0, 0));
+  // KST 00:00:00 = UTC 전날 15:00:00
+  const since = new Date(Date.UTC(y, m - 1, d - 1, 15, 0, 0, 0));
+  // KST 23:59:59.999 = UTC 당일 14:59:59.999
   const until = new Date(Date.UTC(y, m - 1, d, 14, 59, 59, 999));
   return { since: since.toISOString(), until: until.toISOString() };
 }
