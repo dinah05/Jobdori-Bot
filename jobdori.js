@@ -88,52 +88,22 @@ async function getCommits(repo, branch, since, until) {
 }
 
 async function run() {
-  console.log("========== JOBDORI DEBUG ==========");
-  console.log("Current UTC:", new Date().toISOString());
-  console.log(
-    "Current KST:",
-    new Date().toLocaleString("ko-KR", {
-      timeZone: "Asia/Seoul",
-    })
-  );
-
   const targetKst = getTargetKstDateString();
   const { since, until } = getKstDayUtcRange(targetKst);
 
-  console.log(`Target KST = ${targetKst}`);
-  console.log(`UTC range since=${since} until=${until}`);
-
   const repos = await getAllOrgRepos();
   if (!Array.isArray(repos)) return;
-
-  console.log(`Repo count: ${repos.length}`);
 
   const countMap = {};
   const seenSha = new Set();
 
   for (const repo of repos) {
-    console.log(`\n===== REPO: ${repo.name} =====`);
-
     const branches = await getBranches(repo.name);
-
-    if (!Array.isArray(branches)) {
-      console.log(`${repo.name}: branches not found`);
-      continue;
-    }
-
-    console.log(`Branch count: ${branches.length}`);
+    if (!Array.isArray(branches)) continue;
 
     for (const b of branches) {
       const commits = await getCommits(repo.name, b.name, since, until);
-
-      if (!Array.isArray(commits)) {
-        console.log(`${repo.name}/${b.name}: commits not array`);
-        continue;
-      }
-
-      console.log(
-        `${repo.name}/${b.name}: ${commits.length} commits fetched`
-      );
+      if (!Array.isArray(commits)) continue;
 
       for (const c of commits) {
         if (!c?.sha || !c?.author) continue;
@@ -152,19 +122,14 @@ async function run() {
     }
   }
 
-  console.log("\n========== RESULT ==========");
-  console.log("countMap =", JSON.stringify(countMap, null, 2));
-
   const sorted = Object.entries(countMap).sort((a, b) => b[1] - a[1]);
-
-  console.log("sorted =", JSON.stringify(sorted, null, 2));
 
   let message = "";
 
   if (sorted.length === 0) {
     message = `📭 ${targetKst} (KST) 커밋이 없습니다...\n내일 열심히 해주시겠죠..? 🥲`;
   } else {
-    message = `🏆 ${targetKst} (KST) 오늘자 귀염둥이 기여왕!\n\n`;
+    message = `🏆 ${targetKst} (KST) 하루를 빛낸 기여왕!\n\n`;
 
     let prevCnt = null;
     let displayRank = 0;
