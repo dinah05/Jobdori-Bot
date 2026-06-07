@@ -88,6 +88,15 @@ async function getCommits(repo, branch, since, until) {
 }
 
 async function run() {
+  console.log("========== JOBDORI DEBUG ==========");
+  console.log("Current UTC:", new Date().toISOString());
+  console.log(
+    "Current KST:",
+    new Date().toLocaleString("ko-KR", {
+      timeZone: "Asia/Seoul",
+    })
+  );
+
   const targetKst = getTargetKstDateString();
   const { since, until } = getKstDayUtcRange(targetKst);
 
@@ -97,19 +106,37 @@ async function run() {
   const repos = await getAllOrgRepos();
   if (!Array.isArray(repos)) return;
 
+  console.log(`Repo count: ${repos.length}`);
+
   const countMap = {};
   const seenSha = new Set();
 
   for (const repo of repos) {
+    console.log(`\n===== REPO: ${repo.name} =====`);
+
     const branches = await getBranches(repo.name);
-    if (!Array.isArray(branches)) continue;
+
+    if (!Array.isArray(branches)) {
+      console.log(`${repo.name}: branches not found`);
+      continue;
+    }
+
+    console.log(`Branch count: ${branches.length}`);
 
     for (const b of branches) {
       const commits = await getCommits(repo.name, b.name, since, until);
-      if (!Array.isArray(commits)) continue;
+
+      if (!Array.isArray(commits)) {
+        console.log(`${repo.name}/${b.name}: commits not array`);
+        continue;
+      }
+
+      console.log(
+        `${repo.name}/${b.name}: ${commits.length} commits fetched`
+      );
 
       for (const c of commits) {
-        if (!c?.sha || !c?.author) continue; // GitHub 유저 없는 커밋 제외
+        if (!c?.sha || !c?.author) continue;
 
         if (seenSha.has(c.sha)) continue;
         seenSha.add(c.sha);
@@ -125,7 +152,12 @@ async function run() {
     }
   }
 
+  console.log("\n========== RESULT ==========");
+  console.log("countMap =", JSON.stringify(countMap, null, 2));
+
   const sorted = Object.entries(countMap).sort((a, b) => b[1] - a[1]);
+
+  console.log("sorted =", JSON.stringify(sorted, null, 2));
 
   let message = "";
 
