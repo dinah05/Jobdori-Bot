@@ -4,7 +4,7 @@ const GITHUB_TOKEN = process.env.PERSONAL_TOKEN;
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 
 const ORG = "LinkYou-2025";
-const TARGET_OFFSET_DAYS = 0;
+const TARGET_OFFSET_DAYS = -1;
 
 function kstDateString(date = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
