@@ -17,11 +17,14 @@ function kstDateString(date = new Date()) {
 
 function getKstDayUtcRange(kstYYYYMMDD) {
   const [y, m, d] = kstYYYYMMDD.split("-").map(Number);
-  // KST 00:00:00 = UTC 전날 15:00:00
+
   const since = new Date(Date.UTC(y, m - 1, d - 1, 15, 0, 0, 0));
-  // KST 23:59:59.999 = UTC 당일 14:59:59.999
   const until = new Date(Date.UTC(y, m - 1, d, 14, 59, 59, 999));
-  return { since: since.toISOString(), until: until.toISOString() };
+
+  return {
+    since: since.toISOString(),
+    until: until.toISOString(),
+  };
 }
 
 function addDaysUTC(date, days) {
@@ -50,10 +53,10 @@ async function gh(url) {
     const text = await res.text().catch(() => "");
     throw new Error(`GitHub API ${res.status}: ${text}`);
   }
+
   return res.json();
 }
 
-// 전체 레포 조회
 async function getAllOrgRepos() {
   let page = 1;
   let allRepos = [];
@@ -73,7 +76,9 @@ async function getAllOrgRepos() {
 }
 
 async function getBranches(repo) {
-  return gh(`https://api.github.com/repos/${ORG}/${repo}/branches?per_page=100`);
+  return gh(
+    `https://api.github.com/repos/${ORG}/${repo}/branches?per_page=100`
+  );
 }
 
 async function getCommits(repo, branch, since, until) {
@@ -88,41 +93,110 @@ async function getCommits(repo, branch, since, until) {
 }
 
 async function run() {
+  console.log("===== DEBUG START =====");
+
   const targetKst = getTargetKstDateString();
   const { since, until } = getKstDayUtcRange(targetKst);
 
+  console.log("Target Date:", targetKst);
+
+  // backend 직접 조회 테스트
+  try {
+    const backendRepo = await gh(
+      `https://api.github.com/repos/${ORG}/backend`
+    );
+
+    console.log(
+      "✅ backend 접근 성공:",
+      backendRepo.name,
+      "private:",
+      backendRepo.private
+    );
+  } catch (e) {
+    console.error("❌ backend 접근 실패");
+    console.error(e.message);
+  }
+
+  // 조직 레포 조회
   const repos = await getAllOrgRepos();
-  if (!Array.isArray(repos)) return;
+
+  console.log(
+    "조직 레포 목록:",
+    repos.map((r) => `${r.name} (${r.private ? "private" : "public"})`)
+  );
+
+  const hasBackend = repos.some((r) => r.name === "backend");
+
+  console.log("backend 포함 여부:", hasBackend);
 
   const countMap = {};
   const seenSha = new Set();
 
   for (const repo of repos) {
-    const branches = await getBranches(repo.name);
-    if (!Array.isArray(branches)) continue;
+    console.log(`\n=== ${repo.name} 조회 중 ===`);
 
-    for (const b of branches) {
-      const commits = await getCommits(repo.name, b.name, since, until);
-      if (!Array.isArray(commits)) continue;
+    try {
+      const branches = await getBranches(repo.name);
 
-      for (const c of commits) {
-        if (!c?.sha || !c?.author) continue;
+      console.log(
+        `${repo.name} 브랜치 수:`,
+        Array.isArray(branches) ? branches.length : 0
+      );
 
-        if (seenSha.has(c.sha)) continue;
-        seenSha.add(c.sha);
+      for (const b of branches) {
+        try {
+          const commits = await getCommits(
+            repo.name,
+            b.name,
+            since,
+            until
+          );
 
-        // merge commit 제외
-        if (Array.isArray(c.parents) && c.parents.length > 1) continue;
+          console.log(
+            `${repo.name}/${b.name}: ${
+              Array.isArray(commits) ? commits.length : 0
+            } commits`
+          );
 
-        const key = c.author.login;
-        if (key.endsWith("[bot]")) continue;
+          if (!Array.isArray(commits)) continue;
 
-        countMap[key] = (countMap[key] || 0) + 1;
+          for (const c of commits) {
+            if (!c?.sha || !c?.author) continue;
+
+            if (seenSha.has(c.sha)) continue;
+            seenSha.add(c.sha);
+
+            if (
+              Array.isArray(c.parents) &&
+              c.parents.length > 1
+            ) {
+              continue;
+            }
+
+            const key = c.author.login;
+
+            if (key.endsWith("[bot]")) continue;
+
+            countMap[key] = (countMap[key] || 0) + 1;
+          }
+        } catch (e) {
+          console.error(
+            `❌ ${repo.name}/${b.name} 커밋 조회 실패`
+          );
+          console.error(e.message);
+        }
       }
+    } catch (e) {
+      console.error(`❌ ${repo.name} 브랜치 조회 실패`);
+      console.error(e.message);
     }
   }
 
-  const sorted = Object.entries(countMap).sort((a, b) => b[1] - a[1]);
+  console.log("최종 집계:", countMap);
+
+  const sorted = Object.entries(countMap).sort(
+    (a, b) => b[1] - a[1]
+  );
 
   let message = "";
 
@@ -157,7 +231,9 @@ async function run() {
         (i > 0 && cnt === sorted[i - 1][1]) ||
         (i < sorted.length - 1 && cnt === sorted[i + 1][1]);
 
-      const rankText = isTie ? `공동 ${displayRank}위` : `${displayRank}위`;
+      const rankText = isTie
+        ? `공동 ${displayRank}위`
+        : `${displayRank}위`;
 
       message += `${medal} ${rankText} ${user} — ${cnt} commits\n`;
     }
@@ -167,11 +243,16 @@ async function run() {
 
   await fetch(DISCORD_WEBHOOK, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content: message }),
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      content: message,
+    }),
   });
 
   console.log("디스코드 전송 완료!");
+  console.log("===== DEBUG END =====");
 }
 
 run().catch((e) => {
