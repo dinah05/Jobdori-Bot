@@ -1,10 +1,12 @@
-const fetch = require("node-fetch");
-
 const GITHUB_TOKEN = process.env.PERSONAL_TOKEN;
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
 
 const ORG = "LinkYou-2025";
 const TARGET_OFFSET_DAYS = -1;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function kstDateString(date = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -37,21 +39,31 @@ function getTargetKstDateString() {
   return kstDateString(shifted);
 }
 
-async function gh(url) {
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-      Accept: "application/vnd.github+json",
-      "User-Agent": "jobdori-bot",
-    },
-  });
+async function gh(url, retry = 3) {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${GITHUB_TOKEN}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "jobdori-bot",
+      },
+    });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`GitHub API ${res.status}: ${text}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`GitHub API ${res.status}: ${text}`);
+    }
+
+    return await res.json();
+  } catch (e) {
+    if (retry > 0) {
+      console.log(`재시도 (${4 - retry}/3)`);
+      await sleep(2000);
+      return gh(url, retry - 1);
+    }
+
+    throw e;
   }
-
-  return res.json();
 }
 
 async function getAllRepos() {
@@ -63,7 +75,7 @@ async function getAllRepos() {
       `https://api.github.com/orgs/${ORG}/repos?per_page=100&page=${page}`
     );
 
-    if (!data.length) break;
+    if (!Array.isArray(data) || data.length === 0) break;
 
     repos.push(...data);
     page++;
@@ -80,10 +92,12 @@ async function getCommits(repo, since, until) {
     const data = await gh(
       `https://api.github.com/repos/${ORG}/${repo}/commits?since=${encodeURIComponent(
         since
-      )}&until=${encodeURIComponent(until)}&per_page=100&page=${page}`
+      )}&until=${encodeURIComponent(
+        until
+      )}&per_page=100&page=${page}`
     );
 
-    if (!data.length) break;
+    if (!Array.isArray(data) || data.length === 0) break;
 
     commits.push(...data);
     page++;
