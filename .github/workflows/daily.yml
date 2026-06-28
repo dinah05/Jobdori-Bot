@@ -1,8 +1,11 @@
 name: Jobdori
 
 on:
+  # 매일 한국시간 23:00 실행
   schedule:
     - cron: "0 14 * * *"
+
+  # 수동 실행 가능
   workflow_dispatch:
 
 jobs:
@@ -14,13 +17,16 @@ jobs:
       DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
 
     steps:
+      # 레포 체크아웃
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      # Node.js 설치
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Run Jobdori Script
+      # 스크립트 실행
+      - name: Run Jobdori
         run: node jobdori.js
