@@ -18,12 +18,9 @@ function kstDateString(date = new Date()) {
 function getKstDayUtcRange(kstYYYYMMDD) {
   const [y, m, d] = kstYYYYMMDD.split("-").map(Number);
 
-  const since = new Date(Date.UTC(y, m - 1, d - 1, 15, 0, 0, 0));
-  const until = new Date(Date.UTC(y, m - 1, d, 14, 59, 59, 999));
-
   return {
-    since: since.toISOString(),
-    until: until.toISOString(),
+    since: new Date(Date.UTC(y, m - 1, d - 1, 15, 0, 0)).toISOString(),
+    until: new Date(Date.UTC(y, m - 1, d, 14, 59, 59, 999)).toISOString(),
   };
 }
 
@@ -34,8 +31,8 @@ function addDaysUTC(date, days) {
 }
 
 function getTargetKstDateString() {
-  const todayKst = kstDateString(new Date());
-  const { since } = getKstDayUtcRange(todayKst);
+  const today = kstDateString();
+  const { since } = getKstDayUtcRange(today);
   const shifted = addDaysUTC(new Date(since), TARGET_OFFSET_DAYS);
   return kstDateString(shifted);
 }
@@ -57,142 +54,90 @@ async function gh(url) {
   return res.json();
 }
 
-async function getAllOrgRepos() {
+async function getAllRepos() {
   let page = 1;
-  let allRepos = [];
+  const repos = [];
 
   while (true) {
-    const repos = await gh(
+    const data = await gh(
       `https://api.github.com/orgs/${ORG}/repos?per_page=100&page=${page}`
     );
 
-    if (!Array.isArray(repos) || repos.length === 0) break;
+    if (!data.length) break;
 
-    allRepos = allRepos.concat(repos);
+    repos.push(...data);
     page++;
   }
 
-  return allRepos;
+  return repos;
 }
 
-async function getBranches(repo) {
-  return gh(
-    `https://api.github.com/repos/${ORG}/${repo}/branches?per_page=100`
-  );
-}
+async function getCommits(repo, since, until) {
+  let page = 1;
+  const commits = [];
 
-async function getCommits(repo, branch, since, until) {
-  const url =
-    `https://api.github.com/repos/${ORG}/${repo}/commits` +
-    `?sha=${encodeURIComponent(branch)}` +
-    `&since=${encodeURIComponent(since)}` +
-    `&until=${encodeURIComponent(until)}` +
-    `&per_page=100`;
+  while (true) {
+    const data = await gh(
+      `https://api.github.com/repos/${ORG}/${repo}/commits?since=${encodeURIComponent(
+        since
+      )}&until=${encodeURIComponent(until)}&per_page=100&page=${page}`
+    );
 
-  return gh(url);
+    if (!data.length) break;
+
+    commits.push(...data);
+    page++;
+  }
+
+  return commits;
 }
 
 async function run() {
-  console.log("===== DEBUG START =====");
+  const targetDate = getTargetKstDateString();
+  const { since, until } = getKstDayUtcRange(targetDate);
 
-  const targetKst = getTargetKstDateString();
-  const { since, until } = getKstDayUtcRange(targetKst);
+  console.log("===== JOBDORI START =====");
+  console.log("Target:", targetDate);
 
-  console.log("Target Date:", targetKst);
-
-  // backend 직접 조회 테스트
-  try {
-    const backendRepo = await gh(
-      `https://api.github.com/repos/${ORG}/backend`
-    );
-
-    console.log(
-      "✅ backend 접근 성공:",
-      backendRepo.name,
-      "private:",
-      backendRepo.private
-    );
-  } catch (e) {
-    console.error("❌ backend 접근 실패");
-    console.error(e.message);
-  }
-
-  // 조직 레포 조회
-  const repos = await getAllOrgRepos();
+  const repos = await getAllRepos();
 
   console.log(
-    "조직 레포 목록:",
     repos.map((r) => `${r.name} (${r.private ? "private" : "public"})`)
   );
-
-  const hasBackend = repos.some((r) => r.name === "backend");
-
-  console.log("backend 포함 여부:", hasBackend);
 
   const countMap = {};
   const seenSha = new Set();
 
   for (const repo of repos) {
-    console.log(`\n=== ${repo.name} 조회 중 ===`);
+    console.log(`조회중 : ${repo.name}`);
 
     try {
-      const branches = await getBranches(repo.name);
+      const commits = await getCommits(repo.name, since, until);
 
-      console.log(
-        `${repo.name} 브랜치 수:`,
-        Array.isArray(branches) ? branches.length : 0
-      );
+      console.log(`${repo.name}: ${commits.length} commits`);
 
-      for (const b of branches) {
-        try {
-          const commits = await getCommits(
-            repo.name,
-            b.name,
-            since,
-            until
-          );
+      for (const c of commits) {
+        if (!c.sha) continue;
 
-          console.log(
-            `${repo.name}/${b.name}: ${
-              Array.isArray(commits) ? commits.length : 0
-            } commits`
-          );
+        if (seenSha.has(c.sha)) continue;
+        seenSha.add(c.sha);
 
-          if (!Array.isArray(commits)) continue;
+        if (c.parents && c.parents.length > 1) continue;
 
-          for (const c of commits) {
-            if (!c?.sha || !c?.author) continue;
+        const login =
+          c.author?.login ||
+          c.commit?.author?.name ||
+          "Unknown";
 
-            if (seenSha.has(c.sha)) continue;
-            seenSha.add(c.sha);
+        if (login.endsWith("[bot]")) continue;
 
-            if (
-              Array.isArray(c.parents) &&
-              c.parents.length > 1
-            ) {
-              continue;
-            }
-
-            const key = c.author.login;
-
-            if (key.endsWith("[bot]")) continue;
-
-            countMap[key] = (countMap[key] || 0) + 1;
-          }
-        } catch (e) {
-          console.error(
-            `❌ ${repo.name}/${b.name} 커밋 조회 실패`
-          );
-          console.error(e.message);
-        }
+        countMap[login] = (countMap[login] || 0) + 1;
       }
     } catch (e) {
-      console.error(`❌ ${repo.name} 브랜치 조회 실패`);
-      console.error(e.message);
+      console.log(`${repo.name} 실패`);
+      console.log(e.message);
     }
   }
-
-  console.log("최종 집계:", countMap);
 
   const sorted = Object.entries(countMap).sort(
     (a, b) => b[1] - a[1]
@@ -200,46 +145,44 @@ async function run() {
 
   let message = "";
 
-  if (sorted.length === 0) {
-    message = `📭 ${targetKst} (KST) 커밋이 없습니다...\n내일 열심히 해주시겠죠..? 🥲`;
+  if (!sorted.length) {
+    message = `📭 ${targetDate} (KST) 커밋이 없습니다...\n내일은 모두 화이팅!`;
   } else {
-    message = `🏆 ${targetKst} (KST) 하루를 빛낸 기여왕!\n\n`;
+    message = `🏆 ${targetDate} (KST) 하루를 빛낸 기여왕!\n\n`;
 
-    let prevCnt = null;
-    let displayRank = 0;
+    let prevCount = null;
+    let rank = 0;
 
     for (let i = 0; i < sorted.length; i++) {
-      const [user, cnt] = sorted[i];
+      const [user, count] = sorted[i];
 
-      if (cnt !== prevCnt) {
-        displayRank = i + 1;
+      if (count !== prevCount) {
+        rank = i + 1;
       }
 
-      if (displayRank > 3) break;
+      if (rank > 3) break;
 
-      prevCnt = cnt;
+      prevCount = count;
 
-      const medalMap = {
+      const medal = {
         1: "👑",
         2: "🥈",
         3: "🥉",
-      };
+      }[rank];
 
-      const medal = medalMap[displayRank] || "";
+      const tie =
+        (i > 0 && sorted[i - 1][1] === count) ||
+        (i < sorted.length - 1 && sorted[i + 1][1] === count);
 
-      const isTie =
-        (i > 0 && cnt === sorted[i - 1][1]) ||
-        (i < sorted.length - 1 && cnt === sorted[i + 1][1]);
-
-      const rankText = isTie
-        ? `공동 ${displayRank}위`
-        : `${displayRank}위`;
-
-      message += `${medal} ${rankText} ${user} — ${cnt} commits\n`;
+      message += `${medal} ${
+        tie ? `공동 ${rank}위` : `${rank}위`
+      } ${user} — ${count} commits\n`;
     }
 
     message += "\n오늘도 링큐를 움직인 최고의 개발자들~ 🚀";
   }
+
+  console.log(message);
 
   await fetch(DISCORD_WEBHOOK, {
     method: "POST",
@@ -251,8 +194,8 @@ async function run() {
     }),
   });
 
-  console.log("디스코드 전송 완료!");
-  console.log("===== DEBUG END =====");
+  console.log("디스코드 전송 완료");
+  console.log("===== JOBDORI END =====");
 }
 
 run().catch((e) => {
